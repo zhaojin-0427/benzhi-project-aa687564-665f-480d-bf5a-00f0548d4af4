@@ -46,6 +46,31 @@ func (s *Store) FindIdempotency(ctx context.Context, key string) (*IdempotencyRe
 	return &result, err
 }
 
+func (s *Store) FindIdempotencyByCase(ctx context.Context, caseNumber string) ([]IdempotencyRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key, case_number, command, fingerprint, status_code, response, created_at
+		FROM idempotency_records WHERE case_number = ?`, caseNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	records := []IdempotencyRecord{}
+	for rows.Next() {
+		var record IdempotencyRecord
+		var created string
+		if err := rows.Scan(&record.Key, &record.CaseNumber, &record.Command, &record.Fingerprint,
+			&record.StatusCode, &record.Response, &created); err != nil {
+			return nil, err
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, created)
+		if err != nil {
+			return nil, err
+		}
+		record.CreatedAt = parsed
+		records = append(records, record)
+	}
+	return records, rows.Err()
+}
+
 func (s *Store) LoadAudit(ctx context.Context, caseID string) ([]domain.AuditEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT case_id, sequence, actor, role, command, before_version,
 		after_version, occurred_at, result_digest, previous_hash, hash FROM audit_events
@@ -70,6 +95,18 @@ func (s *Store) LoadAudit(ctx context.Context, caseID string) ([]domain.AuditEve
 		events = append(events, event)
 	}
 	return events, rows.Err()
+}
+
+func (s *Store) LoadAuditByCaseNumber(ctx context.Context, caseNumber string) ([]domain.AuditEvent, error) {
+	var caseID string
+	err := s.db.QueryRowContext(ctx, "SELECT id FROM inspection_cases WHERE case_number = ?", caseNumber).Scan(&caseID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.LoadAudit(ctx, caseID)
 }
 
 func (s *Store) LoadCaseByCertificateNumber(ctx context.Context, certificateNumber string) (*domain.InspectionCase, error) {

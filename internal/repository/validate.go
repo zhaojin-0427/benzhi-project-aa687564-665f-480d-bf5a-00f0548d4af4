@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -70,6 +72,30 @@ func (s *Store) Validate(ctx context.Context) error {
 		}
 		if len(events) == 0 || events[len(events)-1].AfterVersion != aggregate.Version {
 			return fmt.Errorf("档案 %s 的审计版本与聚合版本不一致", caseID)
+		}
+		if err := s.validateIdempotencyResponses(ctx, aggregate.CaseNumber, events); err != nil {
+			return fmt.Errorf("档案 %s 的幂等响应与审计结果不一致: %w", caseID, err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) validateIdempotencyResponses(ctx context.Context, caseNumber string, events []domain.AuditEvent) error {
+	records, err := s.FindIdempotencyByCase(ctx, caseNumber)
+	if err != nil {
+		return err
+	}
+	if len(records) == 0 {
+		return nil
+	}
+	digests := make(map[string]bool, len(events))
+	for _, event := range events {
+		digests[event.ResultDigest] = true
+	}
+	for _, record := range records {
+		digest := sha256.Sum256(record.Response)
+		if !digests[hex.EncodeToString(digest[:])] {
+			return fmt.Errorf("幂等响应 %s 的正文摘要与审计结果不一致", record.Key)
 		}
 	}
 	return nil

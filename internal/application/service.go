@@ -72,7 +72,27 @@ func (s *Service) replay(ctx context.Context, meta CommandMeta, commandFingerpri
 	if record.Fingerprint != commandFingerprint {
 		return nil, domain.NewRuleError(domain.CodeIdempotencyReuse, "idempotencyKey 已用于不同请求")
 	}
+	events, err := s.store.LoadAuditByCaseNumber(ctx, record.CaseNumber)
+	if err != nil {
+		return nil, err
+	}
+	if !responseDigestMatchesAudit(record.Response, events) {
+		return nil, domain.NewRuleError(domain.CodeIntegrity, "幂等响应正文与首次审计结果不一致")
+	}
 	return &Result{StatusCode: record.StatusCode, Body: append([]byte(nil), record.Response...)}, nil
+}
+
+func responseDigestMatchesAudit(body []byte, events []domain.AuditEvent) bool {
+	if len(events) == 0 {
+		return false
+	}
+	expected := responseDigest(body)
+	for _, event := range events {
+		if event.ResultDigest == expected {
+			return true
+		}
+	}
+	return false
 }
 
 type mutation func(*domain.InspectionCase, time.Time) error
