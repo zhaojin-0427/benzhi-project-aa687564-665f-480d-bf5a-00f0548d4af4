@@ -151,7 +151,8 @@ func (s *Store) validateAssets(ctx context.Context, aggregate *domain.Inspection
 
 func (s *Store) validateTests(ctx context.Context, aggregate *domain.InspectionCase) error {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, asset_id, test_kind, applied_load_kg,
-		brake_distance_mm, limit_triggered, result FROM load_test_records WHERE case_id=? ORDER BY id`, aggregate.ID)
+		brake_distance_mm, limit_triggered, result, failure_reason, recorded_by, recorded_at
+		FROM load_test_records WHERE case_id=? ORDER BY id`, aggregate.ID)
 	if err != nil {
 		return err
 	}
@@ -161,17 +162,20 @@ func (s *Store) validateTests(ctx context.Context, aggregate *domain.InspectionC
 		expected[record.ID] = record
 	}
 	for rows.Next() {
-		var id, assetID string
+		var id, assetID, failureReason, recordedBy, recordedAt string
 		var kind domain.TestKind
 		var applied, distance float64
 		var triggered bool
 		var result domain.TestResult
-		if err := rows.Scan(&id, &assetID, &kind, &applied, &distance, &triggered, &result); err != nil {
+		if err := rows.Scan(&id, &assetID, &kind, &applied, &distance, &triggered, &result,
+			&failureReason, &recordedBy, &recordedAt); err != nil {
 			return err
 		}
 		record, ok := expected[id]
 		if !ok || record.AssetID != assetID || record.TestKind != kind || record.AppliedLoadKg != applied ||
-			record.BrakeDistanceMm != distance || record.LimitTriggered != triggered || record.Result != result {
+			record.BrakeDistanceMm != distance || record.LimitTriggered != triggered || record.Result != result ||
+			record.FailureReason != failureReason || record.RecordedBy != recordedBy ||
+			!sameStoredTime(recordedAt, record.RecordedAt) {
 			return fmt.Errorf("测试明细 %s 与档案快照不一致", id)
 		}
 	}

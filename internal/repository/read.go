@@ -27,6 +27,9 @@ func (s *Store) LoadCase(ctx context.Context, caseNumber string) (*domain.Inspec
 	if err := aggregate.ValidateIntegrity(); err != nil {
 		return nil, err
 	}
+	if err := s.validateMaterializedView(ctx, &aggregate); err != nil {
+		return nil, domain.NewRuleError(domain.CodeIntegrity, "档案持久化明细与快照不一致: %v", err)
+	}
 	return &aggregate, nil
 }
 
