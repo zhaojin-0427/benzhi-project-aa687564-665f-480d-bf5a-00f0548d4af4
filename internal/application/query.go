@@ -62,21 +62,25 @@ func (s *Service) GetCertificate(ctx context.Context, caseNumber string) (*Resul
 func (s *Service) cachedCertificateView(caseNumber string) ([]byte, bool) {
 	s.certificateViewsMu.Lock()
 	defer s.certificateViewsMu.Unlock()
-	body, ok := s.certificateViews[caseNumber]
-	return body, ok
+	view, ok := s.certificateViews[caseNumber]
+	if !ok {
+		return nil, false
+	}
+	// Return an independent copy so cached views for different cases never
+	// alias each other, and later mutations to the cache cannot leak into a
+	// response already handed to the HTTP layer.
+	return append([]byte(nil), view...), true
 }
 
 func (s *Service) rememberCertificateView(caseNumber string, body []byte) []byte {
+	// Always store an independent copy so concurrent lookups for different
+	// cases cannot share or overwrite each other's bytes. This keeps the
+	// cached response for each case isolated, regardless of body length.
+	view := append([]byte(nil), body...)
 	s.certificateViewsMu.Lock()
 	defer s.certificateViewsMu.Unlock()
-	if len(body) > len(s.certificateViewBuffer) {
-		s.certificateViews[caseNumber] = append([]byte(nil), body...)
-		return s.certificateViews[caseNumber]
-	}
-	view := s.certificateViewBuffer[:len(body)]
-	copy(view, body)
 	s.certificateViews[caseNumber] = view
-	return view
+	return append([]byte(nil), view...)
 }
 
 func (s *Service) GetTestCoverage(ctx context.Context, caseNumber string) (*Result, error) {
