@@ -3,20 +3,28 @@ package application
 import (
 	"context"
 	"strings"
+	"time"
 
 	"stage-rigging-clearance/internal/audit"
 	"stage-rigging-clearance/internal/domain"
 )
 
 type cachedCaseView struct {
-	body []byte
+	body      []byte
+	version   int64
+	updatedAt time.Time
 }
 
 func (s *Service) GetCase(ctx context.Context, caseNumber string) (*Result, error) {
 	normalized := strings.ToUpper(strings.TrimSpace(caseNumber))
 	if cached, ok := s.caseViews.Load(normalized); ok {
 		view := cached.(cachedCaseView)
-		return &Result{StatusCode: 200, Body: append([]byte(nil), view.body...)}, nil
+		if fresh, err := s.caseViewFresh(ctx, normalized, view); err != nil {
+			return nil, err
+		} else if fresh {
+			return &Result{StatusCode: 200, Body: append([]byte(nil), view.body...)}, nil
+		}
+		s.caseViews.Delete(normalized)
 	}
 	aggregate, err := s.store.LoadCase(ctx, normalized)
 	if err != nil {
@@ -26,8 +34,27 @@ func (s *Service) GetCase(ctx context.Context, caseNumber string) (*Result, erro
 	if err != nil {
 		return nil, err
 	}
-	s.caseViews.Store(normalized, cachedCaseView{body: append([]byte(nil), body...)})
+	s.caseViews.Store(normalized, cachedCaseView{body: append([]byte(nil), body...),
+		version: aggregate.Version, updatedAt: aggregate.UpdatedAt})
 	return &Result{StatusCode: 200, Body: append([]byte(nil), body...)}, nil
+}
+
+// caseViewFresh reports whether a cached case snapshot still matches the
+// persisted row. A commit performed by another process or Store handle sharing
+// the SQLite file advances (version, updated_at), which is detected here so the
+// stale cached response is discarded and the next query reflects the persisted
+// state. Errors other than not-found surface to the caller; a missing row means
+// the cache cannot be trusted and the caller should attempt a fresh load that
+// will report the proper not-found status.
+func (s *Service) caseViewFresh(ctx context.Context, normalized string, view cachedCaseView) (bool, error) {
+	version, updatedAt, err := s.store.CaseSignature(ctx, normalized)
+	if err != nil {
+		if domain.ErrorCodeOf(err) == domain.CodeNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	return version == view.version && updatedAt.Equal(view.updatedAt), nil
 }
 
 func (s *Service) forgetCaseView(caseNumber string) {
