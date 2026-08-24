@@ -8,8 +8,17 @@ import (
 	"stage-rigging-clearance/internal/domain"
 )
 
+type cachedCaseView struct {
+	body []byte
+}
+
 func (s *Service) GetCase(ctx context.Context, caseNumber string) (*Result, error) {
-	aggregate, err := s.store.LoadCase(ctx, strings.ToUpper(strings.TrimSpace(caseNumber)))
+	normalized := strings.ToUpper(strings.TrimSpace(caseNumber))
+	if cached, ok := s.caseViews.Load(normalized); ok {
+		view := cached.(cachedCaseView)
+		return &Result{StatusCode: 200, Body: append([]byte(nil), view.body...)}, nil
+	}
+	aggregate, err := s.store.LoadCase(ctx, normalized)
 	if err != nil {
 		return nil, err
 	}
@@ -17,7 +26,12 @@ func (s *Service) GetCase(ctx context.Context, caseNumber string) (*Result, erro
 	if err != nil {
 		return nil, err
 	}
-	return &Result{StatusCode: 200, Body: body}, nil
+	s.caseViews.Store(normalized, cachedCaseView{body: append([]byte(nil), body...)})
+	return &Result{StatusCode: 200, Body: append([]byte(nil), body...)}, nil
+}
+
+func (s *Service) forgetCaseView(caseNumber string) {
+	s.caseViews.Delete(strings.ToUpper(strings.TrimSpace(caseNumber)))
 }
 
 func (s *Service) GetAudit(ctx context.Context, caseNumber string) (*Result, error) {

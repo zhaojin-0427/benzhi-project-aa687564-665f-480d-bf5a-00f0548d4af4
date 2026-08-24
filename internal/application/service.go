@@ -15,9 +15,10 @@ import (
 )
 
 type Service struct {
-	store *repository.Store
-	now   func() time.Time
-	locks sync.Map
+	store     *repository.Store
+	now       func() time.Time
+	locks     sync.Map
+	caseViews sync.Map
 }
 
 func NewService(store *repository.Store) *Service {
@@ -135,6 +136,7 @@ func (s *Service) mutateResult(ctx context.Context, caseNumber, command string, 
 	if err := s.store.Commit(ctx, before, aggregate, idem, event); err != nil {
 		return nil, err
 	}
+	s.forgetCaseView(aggregate.CaseNumber)
 	return s.persistedResult(ctx, meta.IdempotencyKey)
 }
 

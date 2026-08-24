@@ -42,5 +42,6 @@ func (s *Service) CreateCase(ctx context.Context, cmd CreateCaseCommand) (*Resul
 	if err := s.store.Commit(ctx, 0, aggregate, idem, event); err != nil {
 		return nil, err
 	}
+	s.forgetCaseView(aggregate.CaseNumber)
 	return s.persistedResult(ctx, cmd.IdempotencyKey)
 }
