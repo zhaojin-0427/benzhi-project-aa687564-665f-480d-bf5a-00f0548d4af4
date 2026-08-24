@@ -29,14 +29,30 @@ func (s *Service) GetAudit(ctx context.Context, caseNumber string) (*Result, err
 	if err != nil {
 		return nil, err
 	}
-	if err := audit.Verify(events); err != nil {
-		return nil, domain.NewRuleError(domain.CodeIntegrity, "审计轨迹校验失败: %v", err)
+	if !s.auditValidationCurrent(aggregate.ID, len(events)) {
+		if err := audit.Verify(events); err != nil {
+			return nil, domain.NewRuleError(domain.CodeIntegrity, "审计轨迹校验失败: %v", err)
+		}
+		s.rememberAuditValidation(aggregate.ID, len(events))
 	}
 	body, err := marshal(auditEnvelope{CaseNumber: aggregate.CaseNumber, Valid: true, Events: events})
 	if err != nil {
 		return nil, err
 	}
 	return &Result{StatusCode: 200, Body: body}, nil
+}
+
+func (s *Service) auditValidationCurrent(caseID string, eventCount int) bool {
+	s.auditValidationMu.Lock()
+	defer s.auditValidationMu.Unlock()
+	validatedCount, ok := s.validatedAuditSize[caseID]
+	return ok && validatedCount == eventCount
+}
+
+func (s *Service) rememberAuditValidation(caseID string, eventCount int) {
+	s.auditValidationMu.Lock()
+	defer s.auditValidationMu.Unlock()
+	s.validatedAuditSize[caseID] = eventCount
 }
 
 func (s *Service) GetCertificate(ctx context.Context, caseNumber string) (*Result, error) {
