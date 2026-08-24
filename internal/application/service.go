@@ -1,6 +1,7 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,9 +16,10 @@ import (
 )
 
 type Service struct {
-	store *repository.Store
-	now   func() time.Time
-	locks sync.Map
+	store           *repository.Store
+	now             func() time.Time
+	locks           sync.Map
+	queryViewBuffer bytes.Buffer
 }
 
 func NewService(store *repository.Store) *Service {

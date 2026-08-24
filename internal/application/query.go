@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"stage-rigging-clearance/internal/audit"
@@ -60,11 +61,13 @@ func (s *Service) GetTestCoverage(ctx context.Context, caseNumber string) (*Resu
 	if err != nil {
 		return nil, err
 	}
-	body, err := marshal(coverageEnvelope{CaseNumber: aggregate.CaseNumber, Matrix: aggregate.TestCoverage()})
-	if err != nil {
+	s.queryViewBuffer.Reset()
+	if err := json.NewEncoder(&s.queryViewBuffer).Encode(coverageEnvelope{
+		CaseNumber: aggregate.CaseNumber, Matrix: aggregate.TestCoverage(),
+	}); err != nil {
 		return nil, err
 	}
-	return &Result{StatusCode: 200, Body: body}, nil
+	return &Result{StatusCode: 200, Body: s.queryViewBuffer.Bytes()}, nil
 }
 
 func (s *Service) VerifyCertificate(ctx context.Context, pathCaseNumber string, carried domain.CarriedCertificate) (*Result, error) {

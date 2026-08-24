@@ -92,11 +92,11 @@ func (s *Service) GetWorkQueue(ctx context.Context, query WorkQueueQuery) (*Resu
 	envelope := workQueueEnvelope{Items: items,
 		Statistics: workQueueStatistics{ByStatus: result.StatusCounts, ByOpenSeverity: result.SeverityCounts},
 		Pagination: workQueuePagination{Limit: query.Limit, NextCursor: next, SnapshotAt: snapshot.Format(time.RFC3339Nano)}}
-	body, err := marshal(envelope)
-	if err != nil {
+	s.queryViewBuffer.Reset()
+	if err := json.NewEncoder(&s.queryViewBuffer).Encode(envelope); err != nil {
 		return nil, err
 	}
-	return &Result{StatusCode: 200, Body: body}, nil
+	return &Result{StatusCode: 200, Body: s.queryViewBuffer.Bytes()}, nil
 }
 
 func normalizeWorkQueueQuery(query *WorkQueueQuery) error {
