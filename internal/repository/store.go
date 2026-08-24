@@ -13,8 +13,9 @@ import (
 const schemaVersion = 2
 
 type Store struct {
-	db       *sql.DB
-	readOnly bool
+	db           *sql.DB
+	readOnly     bool
+	loadCaseStmt *sql.Stmt
 }
 
 type IdempotencyRecord struct {

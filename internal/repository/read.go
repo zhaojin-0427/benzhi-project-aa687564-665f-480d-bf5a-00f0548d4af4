@@ -12,8 +12,18 @@ import (
 )
 
 func (s *Store) LoadCase(ctx context.Context, caseNumber string) (*domain.InspectionCase, error) {
+	statement := s.loadCaseStmt
+	if statement == nil {
+		prepared, err := s.db.PrepareContext(ctx,
+			"SELECT aggregate_json FROM inspection_cases WHERE case_number = ?")
+		if err != nil {
+			return nil, fmt.Errorf("准备档案查询: %w", err)
+		}
+		s.loadCaseStmt = prepared
+		statement = prepared
+	}
 	var data []byte
-	err := s.db.QueryRowContext(ctx, "SELECT aggregate_json FROM inspection_cases WHERE case_number = ?", caseNumber).Scan(&data)
+	err := statement.QueryRowContext(ctx, caseNumber).Scan(&data)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.NewRuleError(domain.CodeNotFound, "检验档案不存在")
 	}
