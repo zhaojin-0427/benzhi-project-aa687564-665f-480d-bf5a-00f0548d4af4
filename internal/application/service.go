@@ -15,13 +15,15 @@ import (
 )
 
 type Service struct {
-	store *repository.Store
-	now   func() time.Time
-	locks sync.Map
+	store         *repository.Store
+	now           func() time.Time
+	locks         sync.Map
+	auditFlightMu sync.Mutex
+	auditFlights  map[string]*auditFlight
 }
 
 func NewService(store *repository.Store) *Service {
-	return &Service{store: store, now: time.Now}
+	return &Service{store: store, now: time.Now, auditFlights: make(map[string]*auditFlight)}
 }
 
 func (s *Service) lockFor(caseNumber string) *sync.Mutex {

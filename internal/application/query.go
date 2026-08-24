@@ -8,6 +8,12 @@ import (
 	"stage-rigging-clearance/internal/domain"
 )
 
+type auditFlight struct {
+	done   chan struct{}
+	result *Result
+	err    error
+}
+
 func (s *Service) GetCase(ctx context.Context, caseNumber string) (*Result, error) {
 	aggregate, err := s.store.LoadCase(ctx, strings.ToUpper(strings.TrimSpace(caseNumber)))
 	if err != nil {
@@ -21,7 +27,23 @@ func (s *Service) GetCase(ctx context.Context, caseNumber string) (*Result, erro
 }
 
 func (s *Service) GetAudit(ctx context.Context, caseNumber string) (*Result, error) {
-	aggregate, err := s.store.LoadCase(ctx, strings.ToUpper(strings.TrimSpace(caseNumber)))
+	caseNumber = strings.ToUpper(strings.TrimSpace(caseNumber))
+	flight, leader := s.beginAuditFlight(caseNumber)
+	if !leader {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-flight.done:
+			return flight.result, flight.err
+		}
+	}
+	result, err := s.loadAudit(ctx, caseNumber)
+	s.finishAuditFlight(caseNumber, flight, result, err)
+	return result, err
+}
+
+func (s *Service) loadAudit(ctx context.Context, caseNumber string) (*Result, error) {
+	aggregate, err := s.store.LoadCase(ctx, caseNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +59,26 @@ func (s *Service) GetAudit(ctx context.Context, caseNumber string) (*Result, err
 		return nil, err
 	}
 	return &Result{StatusCode: 200, Body: body}, nil
+}
+
+func (s *Service) beginAuditFlight(caseNumber string) (*auditFlight, bool) {
+	s.auditFlightMu.Lock()
+	defer s.auditFlightMu.Unlock()
+	if flight := s.auditFlights[caseNumber]; flight != nil {
+		return flight, false
+	}
+	flight := &auditFlight{done: make(chan struct{})}
+	s.auditFlights[caseNumber] = flight
+	return flight, true
+}
+
+func (s *Service) finishAuditFlight(caseNumber string, flight *auditFlight, result *Result, err error) {
+	s.auditFlightMu.Lock()
+	flight.result = result
+	flight.err = err
+	delete(s.auditFlights, caseNumber)
+	close(flight.done)
+	s.auditFlightMu.Unlock()
 }
 
 func (s *Service) GetCertificate(ctx context.Context, caseNumber string) (*Result, error) {
