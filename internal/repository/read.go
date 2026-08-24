@@ -12,8 +12,7 @@ import (
 )
 
 func (s *Store) LoadCase(ctx context.Context, caseNumber string) (*domain.InspectionCase, error) {
-	var data []byte
-	err := s.db.QueryRowContext(ctx, "SELECT aggregate_json FROM inspection_cases WHERE case_number = ?", caseNumber).Scan(&data)
+	data, err := s.loadCaseSnapshot(ctx, caseNumber)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, domain.NewRuleError(domain.CodeNotFound, "检验档案不存在")
 	}
@@ -28,6 +27,22 @@ func (s *Store) LoadCase(ctx context.Context, caseNumber string) (*domain.Inspec
 		return nil, err
 	}
 	return &aggregate, nil
+}
+
+func (s *Store) loadCaseSnapshot(ctx context.Context, caseNumber string) ([]byte, error) {
+	var data []byte
+	err := s.db.QueryRowContext(ctx,
+		"SELECT aggregate_json FROM inspection_cases WHERE case_number = ?", caseNumber).Scan(&data)
+	if err == nil || ctx.Err() == nil {
+		return data, err
+	}
+
+	// A canceled driver read may leave the connection reusable, so retry once to
+	// distinguish a damaged snapshot from a transient interruption.
+	recoveryCtx := context.WithoutCancel(ctx)
+	err = s.db.QueryRowContext(recoveryCtx,
+		"SELECT aggregate_json FROM inspection_cases WHERE case_number = ?", caseNumber).Scan(&data)
+	return data, err
 }
 
 func (s *Store) FindIdempotency(ctx context.Context, key string) (*IdempotencyRecord, error) {
