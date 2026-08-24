@@ -40,7 +40,11 @@ func (s *Service) GetAudit(ctx context.Context, caseNumber string) (*Result, err
 }
 
 func (s *Service) GetCertificate(ctx context.Context, caseNumber string) (*Result, error) {
-	aggregate, err := s.store.LoadCase(ctx, strings.ToUpper(strings.TrimSpace(caseNumber)))
+	key := strings.ToUpper(strings.TrimSpace(caseNumber))
+	if body, ok := s.cachedCertificateView(key); ok {
+		return &Result{StatusCode: 200, Body: body}, nil
+	}
+	aggregate, err := s.store.LoadCase(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +56,27 @@ func (s *Service) GetCertificate(ctx context.Context, caseNumber string) (*Resul
 	if err != nil {
 		return nil, err
 	}
-	return &Result{StatusCode: 200, Body: body}, nil
+	return &Result{StatusCode: 200, Body: s.rememberCertificateView(key, body)}, nil
+}
+
+func (s *Service) cachedCertificateView(caseNumber string) ([]byte, bool) {
+	s.certificateViewsMu.Lock()
+	defer s.certificateViewsMu.Unlock()
+	body, ok := s.certificateViews[caseNumber]
+	return body, ok
+}
+
+func (s *Service) rememberCertificateView(caseNumber string, body []byte) []byte {
+	s.certificateViewsMu.Lock()
+	defer s.certificateViewsMu.Unlock()
+	if len(body) > len(s.certificateViewBuffer) {
+		s.certificateViews[caseNumber] = append([]byte(nil), body...)
+		return s.certificateViews[caseNumber]
+	}
+	view := s.certificateViewBuffer[:len(body)]
+	copy(view, body)
+	s.certificateViews[caseNumber] = view
+	return view
 }
 
 func (s *Service) GetTestCoverage(ctx context.Context, caseNumber string) (*Result, error) {
